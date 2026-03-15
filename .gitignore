@@ -3,4 +3,6 @@ scripts/YOLO/runs
 scripts/YOLO/yolo26n.pt
 scripts/YOLO/yolov8n.pt
 scripts/YOLO/yolov8m.pt
+scripts/YOLO/yolov10s.pt
+scripts/YOLO/yolov10m.pt
 scripts/YOLO/YOLO_test_to_do
