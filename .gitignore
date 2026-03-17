@@ -1,5 +1,6 @@
 datasets
 scripts/YOLO/runs
+scripts/YOLO/output
 scripts/YOLO/yolo26n.pt
 scripts/YOLO/yolov8n.pt
 scripts/YOLO/yolov8m.pt
