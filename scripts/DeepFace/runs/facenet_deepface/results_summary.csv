@@ -1,4 +1,7 @@
-Model,Accuracy,AUC,FAR,FRR,TP,TN,FP,FN,Avg_ms,FPS
-Facenet,0.6633,0.7323,0.33,0.3433,197,201,99,103,190.07,5.26
-Facenet512,0.655,0.968,0.0,0.69,93,300,0,207,189.52,5.28
-ArcFace,0.5033,0.5826,0.99,0.0033,299,3,297,1,109.64,9.12
+Combo,Model,Distance_metric,Detector,Accuracy,AUC,FAR,FRR,TP,TN,FP,FN,Avg_ms,FPS
+ArcFace|cosine|retinaface,ArcFace,cosine,retinaface,0.949,0.974,0.04,0.062,469,480,20,31,723.06,1.38
+Facenet|cosine|retinaface,Facenet,cosine,retinaface,0.89,0.9877,0.01,0.21,395,495,5,105,760.01,1.32
+Facenet512|cosine|retinaface,Facenet512,cosine,retinaface,0.793,0.9958,0.002,0.412,294,499,1,206,764.56,1.31
+Facenet512|cosine|skip,Facenet512,cosine,skip,0.665,0.9703,0.0,0.67,165,500,0,335,169.37,5.9
+Facenet|cosine|skip,Facenet,cosine,skip,0.639,0.7125,0.358,0.364,318,321,179,182,179.8,5.56
+ArcFace|cosine|skip,ArcFace,cosine,skip,0.502,0.5802,0.99,0.006,497,5,495,3,119.12,8.39
