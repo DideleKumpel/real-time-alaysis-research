@@ -176,32 +176,21 @@ def build_verdict_panel(verdict: str, name: str, dist: float) -> np.ndarray:
 # ──────────────────────────────────────────────
 class FaceRecognitionPipeline:
     def __init__(self):
-        print("[INFO] Ładowanie MobileNet SSDLite (torchvision)…")
-        if not os.path.exists(SSD_MODEL):
-            raise FileNotFoundError(f"Brak pliku modelu: {SSD_MODEL}")
-
-        import torch
-        from torchvision.models.detection import ssdlite320_mobilenet_v3_large
-        self._torch  = torch
-        self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        # Zbuduj tę samą architekturę co podczas treningu
-        self.ssd = ssdlite320_mobilenet_v3_large(
-            weights=None,
-            weights_backbone=None,
-            num_classes=NUM_CLASSES,
+        print("[INFO] Ładowanie MobileNet SSDLite (ONNX Runtime)…")
+        onnx_path = str(_DIR / "bestMN.onnx")
+        if not os.path.exists(onnx_path):
+            raise FileNotFoundError(
+                f"Brak pliku ONNX: {onnx_path}\n"
+                f"Uruchom najpierw:  python export_to_onnx.py"
+            )
+        import onnxruntime as ort
+        # CPUExecutionProvider automatycznie używa AVX/AVX512 jeśli są dostępne
+        self.ssd = ort.InferenceSession(
+            onnx_path,
+            providers=["CPUExecutionProvider"],
         )
-        state = torch.load(SSD_MODEL, map_location=self._device)
-        # obsłuż oba formaty zapisu: sam state_dict lub pełny checkpoint
-        if isinstance(state, dict) and "model_state_dict" in state:
-            state = state["model_state_dict"]
-        elif isinstance(state, dict) and not any(k.startswith("backbone") for k in state):
-            # może być opakowany – spróbuj bezpośrednio
-            pass
-        self.ssd.load_state_dict(state)
-        self.ssd.eval()
-        self.ssd.to(self._device)
-        print(f"[INFO] Model załadowany na {self._device}.")
+        self._input_name = self.ssd.get_inputs()[0].name   # "image"
+        print("[INFO] ONNX model załadowany.")
 
         print("[INFO] Rozgrzewanie DeepFace / Facenet…")
         # Pierwsze wywołanie DeepFace pobiera wagi modelu – robimy to z góry
@@ -238,35 +227,35 @@ class FaceRecognitionPipeline:
             print(f"[WARN] DeepFace błąd: {e}")
         return None
 
-    # ── detekcja głów SSDLite torchvision ──────
+    # ── detekcja głów SSDLite ONNX ──────────────
     def _detect_heads(self, frame: np.ndarray) -> list:
         """Zwraca listę (x1, y1, x2, y2, conf) dla klasy Human head (id=2)."""
-        import torchvision.transforms.functional as F
-
-        # BGR (OpenCV) → RGB tensor [C, H, W] float32 w zakresie [0, 1]
-        rgb    = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        tensor = F.to_tensor(rgb).to(self._device)   # normalizuje do [0,1]
-
-        # Model torchvision SSD przyjmuje listę tensorów
-        with self._torch.no_grad():
-            outputs = self.ssd([tensor])[0]
-
-        # outputs: dict z kluczami boxes, labels, scores
-        # boxes: (N, 4) w pikselach oryginałnego obrazu – torchvision robi rescaling
-        pred_boxes  = outputs["boxes"].cpu().numpy()
-        pred_labels = outputs["labels"].cpu().numpy()
-        pred_scores = outputs["scores"].cpu().numpy()
-
         h, w = frame.shape[:2]
+
+        # BGR → RGB, resize 320×320, normalizacja [0,1], dodaj wymiar batch
+        rgb     = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        resized = cv2.resize(rgb, (320, 320)).astype(np.float32) / 255.0
+        blob    = resized.transpose(2, 0, 1)[np.newaxis, ...]  # (1, 3, 320, 320)
+
+        # Inference ONNX – zwraca 3 tablice: boxes, scores, labels
+        boxes_out, scores_out, labels_out = self.ssd.run(
+            None, {self._input_name: blob}
+        )
+
+        # boxes_out są w pikselach obrazu 320×320 – przeskaluj do oryginału
+        scale_x = w / 320.0
+        scale_y = h / 320.0
+
         boxes = []
-        for box, label, score in zip(pred_boxes, pred_labels, pred_scores):
+        for box, score, label in zip(boxes_out, scores_out, labels_out):
             if int(label) != SSD_HEAD_CLASS_ID:
                 continue
             if float(score) < SSD_CONF_THRESHOLD:
                 continue
-            x1, y1, x2, y2 = map(int, box)
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(w, x2), min(h, y2)
+            x1 = int(max(0, box[0] * scale_x))
+            y1 = int(max(0, box[1] * scale_y))
+            x2 = int(min(w, box[2] * scale_x))
+            y2 = int(min(h, box[3] * scale_y))
             boxes.append((x1, y1, x2, y2, float(score)))
 
         # Największy box (twarz z przodu) jako pierwszy
