@@ -1,0 +1,1 @@
+"""Moduł aplikacji desktopowej."""

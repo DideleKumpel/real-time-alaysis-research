@@ -45,6 +45,7 @@ CAM_W     = 640
 FACE_W    = 240
 VERDICT_W = 300
 TOTAL_W   = CAM_W + FACE_W + VERDICT_W   # 1180
+MOTION_THRESHOLD = 1500
 
 
 # ──────────────────────────────────────────────
@@ -129,11 +130,13 @@ def build_verdict_panel(verdict: str, name: str, dist: float) -> np.ndarray:
     _text(panel, "DEEPFACE  RESULT", (8, 24), (180, 180, 180), 0.6)
 
     cfg = {
-        "known":    ((0, 120, 0),   "KNOWN",    "PERSON"),
-        "unknown":  ((0, 0, 160),   "UNKNOWN",  "PERSON"),
-        "empty_db": ((60, 60, 0),   "NO DB",    "register first"),
-        "no_face":  ((40, 40, 40),  "NO FACE",  "detected"),
-        "error":    ((80, 0, 80),   "ERROR",    "see console"),
+        "known":      ((0, 120, 0),   "KNOWN",    "PERSON"),
+        "unknown":    ((0, 0, 160),   "UNKNOWN",  "PERSON"),
+        "empty_db":   ((60, 60, 0),   "NO DB",    "register first"),
+        "no_face":    ((40, 40, 40),  "NO FACE",  "detected"),
+        "no_motion":  ((35, 35, 35),  "NO MOTION", "AI paused"),
+        "motion":     ((20, 80, 20),  "MOTION",   "AI active"),
+        "error":      ((80, 0, 80),   "ERROR",    "see console"),
     }
     bg_color, big, sub = cfg.get(verdict, cfg["no_face"])
 
@@ -170,6 +173,12 @@ def build_verdict_panel(verdict: str, name: str, dist: float) -> np.ndarray:
 # ──────────────────────────────────────────────
 class FaceRecognitionPipeline:
     def __init__(self):
+        self.motion_detector = cv2.createBackgroundSubtractorMOG2(
+            history=500,
+            varThreshold=25,
+            detectShadows=True,
+        )
+
         print("[INFO] Ładowanie YOLO…")
         self.yolo = YOLO(YOLO_MODEL)
 
@@ -208,6 +217,21 @@ class FaceRecognitionPipeline:
             print(f"[WARN] DeepFace błąd: {e}")
         return None
 
+    def _detect_motion(self, frame: np.ndarray) -> tuple[bool, np.ndarray]:
+        """Zwraca (czy wykryto ruch, maske foreground)."""
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (21, 21), 0)
+        fg_mask = self.motion_detector.apply(gray)
+
+        _, thresh = cv2.threshold(fg_mask, 200, 255, cv2.THRESH_BINARY)
+        kernel = np.ones((5, 5), dtype=np.uint8)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+
+        motion_pixels = cv2.countNonZero(thresh)
+        detected = motion_pixels > MOTION_THRESHOLD
+        return detected, thresh
+
     # ── detekcja głów YOLO ───────────────────────
     def _detect_heads(self, frame: np.ndarray) -> list:
         """Zwraca listę (x1, y1, x2, y2, conf) dla klasy HEAD (id=1)."""
@@ -232,12 +256,38 @@ class FaceRecognitionPipeline:
         sx = CAM_W  / w_orig
         sy = PANEL_H / h_orig
 
-        boxes = self._detect_heads(frame)
+        motion_detected, motion_mask = self._detect_motion(frame)
+        if motion_detected:
+            cv2.putText(cam_panel,
+                        "MOTION DETECTED",
+                        (8, 24),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 220, 0),
+                        2,
+                        cv2.LINE_AA)
+        else:
+            cv2.putText(cam_panel,
+                        "NO MOTION DETECTED",
+                        (8, 24),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 0, 200),
+                        2,
+                        cv2.LINE_AA)
 
-        best_crop = None
-        verdict   = "no_face"
-        res_name  = ""
-        res_dist  = 1.0
+        if not motion_detected:
+            boxes = []
+            best_crop = None
+            verdict = "no_motion"
+            res_name = ""
+            res_dist = 1.0
+        else:
+            boxes = self._detect_heads(frame)
+            best_crop = None
+            verdict   = "no_face"
+            res_name  = ""
+            res_dist  = 1.0
 
         for idx, (x1, y1, x2, y2, conf) in enumerate(boxes):
             # Skalowane współrzędne na panelu kamery
@@ -303,6 +353,15 @@ class FaceRecognitionPipeline:
         cv2.rectangle(cam_panel, (0, 0), (CAM_W, 34), (30, 30, 30), -1)
         _text(cam_panel, "YOLO  –  HEAD DETECTION  (class 1)", (8, 24), (200, 200, 200), 0.6)
         _text(cam_panel, "Q = quit", (CAM_W - 80, 24), (120, 120, 120), 0.5)
+
+        if motion_detected:
+            motion_overlay = cv2.applyColorMap((motion_mask * 255).astype(np.uint8), cv2.COLORMAP_JET)
+            motion_overlay = cv2.resize(motion_overlay, (CAM_W, PANEL_H))
+            motion_overlay = cv2.cvtColor(motion_overlay, cv2.COLOR_BGR2BGRA)
+            motion_overlay[:, :, 3] = (motion_mask > 0).astype(np.uint8) * 55
+            cam_panel = cv2.cvtColor(cam_panel, cv2.COLOR_BGR2BGRA)
+            cam_panel = cv2.addWeighted(cam_panel, 1.0, motion_overlay, 0.18, 0)
+            cam_panel = cv2.cvtColor(cam_panel, cv2.COLOR_BGRA2BGR)
 
         # Panele 2 i 3
         face_panel    = build_face_panel(best_crop)

@@ -1,0 +1,7 @@
+opencv-python
+ultralytics
+deepface
+numpy
+scipy
+tf-keras
+pytest
