@@ -2,12 +2,13 @@ import customtkinter as ctk
 
 
 class DashboardView(ctk.CTkFrame):
-    def __init__(self, parent, on_open_cameras, on_open_events, on_open_users):
+    def __init__(self, parent, on_open_cameras, on_open_events, on_open_users, on_open_live):
         super().__init__(parent)
         self.configure(fg_color="#0f172a")
         self.on_open_cameras = on_open_cameras
         self.on_open_events = on_open_events
         self.on_open_users = on_open_users
+        self.on_open_live = on_open_live
 
         self.grid_columnconfigure(0, weight=1)
 
@@ -32,7 +33,7 @@ class DashboardView(ctk.CTkFrame):
             ("Kamery", "Moduł kamer", self.on_open_cameras, "#2563eb"),
             ("Zdarzenia", "Lista zdarzeń", self.on_open_events, "#ea580c"),
             ("Użytkownicy", "Zarządzanie użytkownikami", self.on_open_users, "#16a34a"),
-            ("Live View", "Podgląd w czasie rzeczywistym", lambda: None, "#7c3aed"),
+            ("Live View", "Podgląd w czasie rzeczywistym", self.on_open_live, "#7c3aed"),
             ("Alerty", "Przegląd alarmów", lambda: None, "#dc2626"),
             ("Ustawienia", "Konfiguracja systemu", lambda: None, "#0ea5e9"),
         ]

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "cam-1",
+    "name": "1",
+    "source": "1",
+    "source_type": "index",
+    "status": "disconnected"
+  },
+  {
+    "id": "cam-2",
+    "name": "0",
+    "source": "0",
+    "source_type": "index",
+    "status": "disconnected"
+  },
+  {
+    "id": "cam-3",
+    "name": "2",
+    "source": "2",
+    "source_type": "index",
+    "status": "disconnected"
+  }
+]

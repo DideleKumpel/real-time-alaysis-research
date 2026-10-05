@@ -1,7 +1,11 @@
 import customtkinter as ctk
 
+from app.services.camera_service import CameraService
+from app.services.live_preview_service import LivePreviewService
+from app.views.camera_manager_view import CameraManagerView
 from app.views.dashboard_view import DashboardView
 from app.views.events_view import EventsView
+from app.views.live_preview_view import LivePreviewView
 from app.views.login_view import LoginView
 from app.views.register_view import RegisterView
 from app.views.user_management_view import UserManagementView
@@ -19,22 +23,29 @@ class MockupApplication(ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
+        self.camera_service = CameraService()
+        self.live_preview_service = LivePreviewService()
         self.frames = {}
 
         self.login_view = LoginView(self, self.on_login, self.show_register)
         self.register_view = RegisterView(self, self.show_login, self.on_register_success)
         self.dashboard_view = DashboardView(
             self,
-            on_open_cameras=self.show_camera_placeholder,
+            on_open_cameras=self.show_camera_manager,
             on_open_events=self.show_events,
             on_open_users=self.show_users,
+            on_open_live=self.show_live_preview,
         )
+        self.camera_view = CameraManagerView(self, self.show_dashboard, self.camera_service)
+        self.live_preview_view = LivePreviewView(self, self.show_dashboard, self.camera_service, self.live_preview_service)
         self.events_view = EventsView(self, self.show_dashboard)
         self.user_view = UserManagementView(self, self.show_dashboard)
 
         self.frames["login"] = self.login_view
         self.frames["register"] = self.register_view
         self.frames["dashboard"] = self.dashboard_view
+        self.frames["cameras"] = self.camera_view
+        self.frames["live"] = self.live_preview_view
         self.frames["events"] = self.events_view
         self.frames["users"] = self.user_view
 
@@ -53,15 +64,19 @@ class MockupApplication(ctk.CTk):
     def show_dashboard(self):
         self._show_frame("dashboard")
 
+    def show_camera_manager(self):
+        self.camera_view.refresh_cameras()
+        self._show_frame("cameras")
+
+    def show_live_preview(self):
+        self.live_preview_view.refresh_camera_list()
+        self._show_frame("live")
+
     def show_events(self):
         self._show_frame("events")
 
     def show_users(self):
         self._show_frame("users")
-
-    def show_camera_placeholder(self):
-        self._show_frame("dashboard")
-        self.dashboard_view.focus_set()
 
     def on_login(self, username):
         self.show_dashboard()
