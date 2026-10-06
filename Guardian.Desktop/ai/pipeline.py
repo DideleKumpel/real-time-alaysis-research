@@ -12,7 +12,6 @@ from scipy.spatial.distance import cosine
 from ai.motion_detector import MotionDetector
 from ai.yolo_detector import YoloDetector
 from ai.face_matcher import FaceMatcher
-from app.renderers.video_renderer import render_monitoring_view
 
 CAMERA_INDEX = 0
 YOLO_HEAD_CLASS_ID = 1
@@ -24,7 +23,7 @@ PANEL_H = 480
 CAM_W = 640
 FACE_W = 240
 VERDICT_W = 300
-MOTION_THRESHOLD = 1500
+MOTION_THRESHOLD = 200
 
 
 class FaceDatabase:
@@ -68,10 +67,10 @@ class MonitoringPipeline:
     """Główny pipeline: ruch -> YOLO -> face-match -> render 3-paneli."""
 
     def __init__(self, yolo_model_path: str):
-        self.motion_detector = MotionDetector()
         self.yolo_detector = YoloDetector(yolo_model_path)
         self.face_matcher = FaceMatcher()
         self.db = FaceDatabase(str(Path(__file__).resolve().parents[1] / "data" / "face_database.pkl"))
+        self.camera_states: dict[str, dict] = {}
 
     def initialize(self):
         self.yolo_detector.load()
@@ -113,17 +112,23 @@ class MonitoringPipeline:
         boxes.sort(key=lambda b: (b[2] - b[0]) * (b[3] - b[1]), reverse=True)
         return boxes
 
-    def process_frame(self, frame):
-        h_orig, w_orig = frame.shape[:2]
-        cam_panel = cv2.resize(frame.copy(), (CAM_W, PANEL_H))
-        sx = CAM_W / w_orig
-        sy = PANEL_H / h_orig
+    def _get_camera_state(self, camera_id: str | None):
+        camera_key = str(camera_id or "default")
+        if camera_key not in self.camera_states:
+            self.camera_states[camera_key] = {"motion_detector": MotionDetector()}
+        return self.camera_states[camera_key]
 
-        motion_detected, motion_mask = self.motion_detector.detect(frame, threshold=MOTION_THRESHOLD)
-        if motion_detected:
-            cv2.putText(cam_panel, "MOTION DETECTED", (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 0), 2, cv2.LINE_AA)
-        else:
-            cv2.putText(cam_panel, "NO MOTION DETECTED", (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 200), 2, cv2.LINE_AA)
+    def process_frame(self, frame, camera_id: str | None = None):
+        camera_key = str(camera_id or "default")
+        state = self._get_camera_state(camera_key)
+        motion_detector = state["motion_detector"]
+        h_orig, w_orig = frame.shape[:2]
+        output_frame = frame.copy()
+        sx = 1.0
+        sy = 1.0
+
+        motion_detected, motion_mask = motion_detector.detect(frame, threshold=MOTION_THRESHOLD)
+        print(f"[AI] camera={camera_key} motion_detected={motion_detected} pixels={cv2.countNonZero(motion_mask)} frame={frame.shape[:2]}")
 
         if not motion_detected:
             boxes = []
@@ -131,12 +136,18 @@ class MonitoringPipeline:
             verdict = "no_motion"
             res_name = ""
             res_dist = 1.0
+            status_text = "NO MOTION"
+            person_detected = False
+            print("[AI] status=NO MOTION -> skip YOLO")
         else:
             boxes = self._detect_heads(frame)
             best_crop = None
             verdict = "no_face"
             res_name = ""
             res_dist = 1.0
+            status_text = "NO FACE DETECTED"
+            person_detected = False
+            print(f"[AI] YOLO boxes={len(boxes)}")
 
         for idx, (x1, y1, x2, y2, conf) in enumerate(boxes):
             sx1, sy1 = int(x1 * sx), int(y1 * sy)
@@ -172,6 +183,8 @@ class MonitoringPipeline:
                         if idx == 0:
                             best_crop = crop
                             verdict = "unknown"
+                            person_detected = True
+                            status_text = "UNKNOWN"
                             res_dist = dist
                     else:
                         box_color = (0, 210, 0)
@@ -179,24 +192,24 @@ class MonitoringPipeline:
                         if idx == 0:
                             best_crop = crop
                             verdict = "known"
+                            person_detected = True
+                            status_text = "PERSON DETECTED"
                             res_name = name
                             res_dist = dist
 
-            cv2.rectangle(cam_panel, (sx1, sy1), (sx2, sy2), box_color, 2)
-            cv2.putText(cam_panel, box_label, (sx1, max(sy1 - 6, 14)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2, cv2.LINE_AA)
+            if verdict in ("known", "unknown"):
+                status_text = "PERSON DETECTED" if verdict == "known" else "UNKNOWN"
+            elif motion_detected and verdict == "no_face":
+                status_text = "NO FACE DETECTED"
 
-        cv2.rectangle(cam_panel, (0, 0), (CAM_W, 34), (30, 30, 30), -1)
-        cv2.putText(cam_panel, "YOLO – HEAD DETECTION (class 1)", (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1, cv2.LINE_AA)
-        cv2.putText(cam_panel, "Q = quit", (CAM_W - 80, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (120, 120, 120), 1, cv2.LINE_AA)
+            cv2.rectangle(output_frame, (x1, y1), (x2, y2), box_color, 2)
+            cv2.putText(output_frame, box_label, (x1, max(y1 - 6, 14)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2, cv2.LINE_AA)
 
-        if motion_detected:
-            motion_overlay = cv2.applyColorMap((motion_mask * 255).astype(np.uint8), cv2.COLORMAP_JET)
-            motion_overlay = cv2.resize(motion_overlay, (CAM_W, PANEL_H))
-            motion_overlay = cv2.cvtColor(motion_overlay, cv2.COLOR_BGR2BGRA)
-            motion_overlay[:, :, 3] = (motion_mask > 0).astype(np.uint8) * 55
-            cam_panel = cv2.cvtColor(cam_panel, cv2.COLOR_BGR2BGRA)
-            cam_panel = cv2.addWeighted(cam_panel, 1.0, motion_overlay, 0.18, 0)
-            cam_panel = cv2.cvtColor(cam_panel, cv2.COLOR_BGRA2BGR)
-
-        display = render_monitoring_view(cam_panel, best_crop, verdict, res_name, res_dist)
-        return {"motion_detected": motion_detected, "display": display, "boxes": boxes}
+        print(f"[AI] final_status={status_text} boxes={len(boxes)} person_detected={person_detected} verdict={verdict}")
+        return {
+            "motion_detected": motion_detected,
+            "person_detected": person_detected,
+            "status_text": status_text,
+            "display": output_frame,
+            "boxes": boxes,
+        }

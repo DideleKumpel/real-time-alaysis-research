@@ -1,5 +1,6 @@
 import customtkinter as ctk
 
+from app.bootstrap import bootstrap_application
 from app.services.camera_service import CameraService
 from app.services.live_preview_service import LivePreviewService
 from app.views.camera_manager_view import CameraManagerView
@@ -25,6 +26,7 @@ class MockupApplication(ctk.CTk):
 
         self.camera_service = CameraService()
         self.live_preview_service = LivePreviewService()
+        self.ai_pipeline = bootstrap_application()
         self.frames = {}
 
         self.login_view = LoginView(self, self.on_login, self.show_register)
@@ -37,7 +39,13 @@ class MockupApplication(ctk.CTk):
             on_open_live=self.show_live_preview,
         )
         self.camera_view = CameraManagerView(self, self.show_dashboard, self.camera_service)
-        self.live_preview_view = LivePreviewView(self, self.show_dashboard, self.camera_service, self.live_preview_service)
+        self.live_preview_view = LivePreviewView(
+            self,
+            self.show_dashboard,
+            self.camera_service,
+            self.live_preview_service,
+            self.ai_pipeline,
+        )
         self.events_view = EventsView(self, self.show_dashboard)
         self.user_view = UserManagementView(self, self.show_dashboard)
 
