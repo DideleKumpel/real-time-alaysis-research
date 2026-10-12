@@ -12,6 +12,7 @@ from scipy.spatial.distance import cosine
 from ai.motion_detector import MotionDetector
 from ai.yolo_detector import YoloDetector
 from ai.face_matcher import FaceMatcher
+from app.services.video_recording_service import VideoRecordingService
 
 CAMERA_INDEX = 0
 YOLO_HEAD_CLASS_ID = 1
@@ -71,6 +72,7 @@ class MonitoringPipeline:
         self.face_matcher = FaceMatcher()
         self.db = FaceDatabase(str(Path(__file__).resolve().parents[1] / "data" / "face_database.pkl"))
         self.camera_states: dict[str, dict] = {}
+        self.recording_service = VideoRecordingService()
 
     def initialize(self):
         self.yolo_detector.load()
@@ -206,10 +208,20 @@ class MonitoringPipeline:
             cv2.putText(output_frame, box_label, (x1, max(y1 - 6, 14)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2, cv2.LINE_AA)
 
         print(f"[AI] final_status={status_text} boxes={len(boxes)} person_detected={person_detected} verdict={verdict}")
+
+        recording_result = self.recording_service.process_frame(
+            camera_id=camera_key,
+            frame=output_frame,
+            motion_detected=motion_detected,
+            person_detected=person_detected,
+        )
+
         return {
             "motion_detected": motion_detected,
             "person_detected": person_detected,
             "status_text": status_text,
             "display": output_frame,
             "boxes": boxes,
+            "recording": recording_result.get("recording", False),
+            "recording_path": recording_result.get("path"),
         }
